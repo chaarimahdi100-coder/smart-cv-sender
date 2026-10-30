@@ -15,6 +15,19 @@ import { SOURCE_REGISTRY } from "@/lib/discovery/registry";
 import { SyncReport } from "@/lib/discovery/types";
 import { FormattedDate } from "@/components/ui/FormattedDate";
 import { cleanHtmlToPlainText } from "@/lib/text-sanitizer";
+import {
+  OPPORTUNITIES_PAGE_SIZE,
+  paginateOpportunities,
+  getPaginationPageNumbers,
+  type PaginationResult,
+} from "@/lib/opportunity-pagination";
+
+export {
+  OPPORTUNITIES_PAGE_SIZE,
+  paginateOpportunities,
+  getPaginationPageNumbers,
+};
+export type { PaginationResult };
 
 export interface OpportunityItem {
   id: string;
@@ -57,6 +70,7 @@ export function OpportunityDirectoryClient({
   candidateDegree,
   isManager = false,
 }: OpportunityDirectoryClientProps) {
+  const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<
     "ALL" | "VERIFIED_OPEN" | "TO_RECHECK" | "SPONTANEOUS" | "UNKNOWN" | "CLOSED_EXPIRED"
@@ -151,6 +165,18 @@ export function OpportunityDirectoryClient({
       return true;
     });
   }, [opportunities, selectedStatusFilter, selectedRoleType, selectedFeed, searchQuery]);
+
+  // Pagination calculation applied strictly AFTER all filters and search
+  const {
+    paginatedItems: paginatedOpportunities,
+    currentPage: safeCurrentPage,
+    totalPages,
+    totalResults,
+    startIndex,
+    endIndex,
+  } = useMemo(() => {
+    return paginateOpportunities(filteredOpportunities, currentPage, OPPORTUNITIES_PAGE_SIZE);
+  }, [filteredOpportunities, currentPage]);
 
   const liveCount = useMemo(
     () => opportunities.filter((o) => !o.isDemo && o.verification_status !== "closed" && o.verification_status !== "expired").length,
@@ -373,7 +399,10 @@ export function OpportunityDirectoryClient({
         <div className="flex items-center space-x-2">
           <button
             type="button"
-            onClick={() => setSelectedFeed("LIVE")}
+            onClick={() => {
+              setSelectedFeed("LIVE");
+              setCurrentPage(1);
+            }}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer ${
               selectedFeed === "LIVE"
                 ? "bg-blue-600 text-white shadow-xs"
@@ -388,7 +417,10 @@ export function OpportunityDirectoryClient({
 
           <button
             type="button"
-            onClick={() => setSelectedFeed("DEMO")}
+            onClick={() => {
+              setSelectedFeed("DEMO");
+              setCurrentPage(1);
+            }}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer ${
               selectedFeed === "DEMO"
                 ? "bg-amber-600 text-white shadow-xs"
@@ -403,7 +435,10 @@ export function OpportunityDirectoryClient({
 
           <button
             type="button"
-            onClick={() => setSelectedFeed("ALL")}
+            onClick={() => {
+              setSelectedFeed("ALL");
+              setCurrentPage(1);
+            }}
             className={`px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer ${
               selectedFeed === "ALL"
                 ? "bg-slate-800 text-white"
@@ -442,7 +477,10 @@ export function OpportunityDirectoryClient({
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setCurrentPage(1);
+            }}
             placeholder="Rechercher par titre, entreprise, ville, mot-clé (ex: Next.js, Power BI, SQL)..."
             className="w-full pl-10 pr-4 py-2.5 text-xs bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
           />
@@ -474,7 +512,10 @@ export function OpportunityDirectoryClient({
                 <button
                   key={tab.id}
                   type="button"
-                  onClick={() => setSelectedStatusFilter(tab.id as typeof selectedStatusFilter)}
+                  onClick={() => {
+                    setSelectedStatusFilter(tab.id as typeof selectedStatusFilter);
+                    setCurrentPage(1);
+                  }}
                   className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                     isSelected
                       ? isClosedTab
@@ -515,7 +556,10 @@ export function OpportunityDirectoryClient({
                 <button
                   key={role.id}
                   type="button"
-                  onClick={() => setSelectedRoleType(role.id)}
+                  onClick={() => {
+                    setSelectedRoleType(role.id);
+                    setCurrentPage(1);
+                  }}
                   className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer flex items-center space-x-1 ${
                     isSelected
                       ? "bg-slate-800 text-white dark:bg-zinc-200 dark:text-zinc-900"
@@ -552,6 +596,7 @@ export function OpportunityDirectoryClient({
                   setSelectedStatusFilter("ALL");
                   setSelectedRoleType("ALL");
                   setSelectedFeed("ALL");
+                  setCurrentPage(1);
                 }}
                 className="px-4 py-2 border border-blue-600 text-xs font-semibold rounded-xl text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors cursor-pointer"
               >
@@ -570,8 +615,9 @@ export function OpportunityDirectoryClient({
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredOpportunities.map((op) => {
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {paginatedOpportunities.map((op) => {
             const breakdown = op.matchBreakdown;
             const normType = op.type.toUpperCase();
 
@@ -918,7 +964,95 @@ export function OpportunityDirectoryClient({
             );
           })}
         </div>
-      )}
+
+        {/* Accessible Pagination Navigation */}
+        {totalResults > 0 && (
+          <nav
+            aria-label="Pagination du répertoire des opportunités"
+            className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-2xs"
+          >
+            <div className="text-xs text-slate-600 dark:text-zinc-400">
+              Affichage de <span className="font-semibold text-slate-900 dark:text-zinc-100">{startIndex + 1}</span> à{" "}
+              <span className="font-semibold text-slate-900 dark:text-zinc-100">{endIndex}</span> sur{" "}
+              <span className="font-semibold text-slate-900 dark:text-zinc-100">{totalResults}</span> opportunités
+              <span className="ml-2 text-slate-400 dark:text-zinc-500">
+                (Page {safeCurrentPage} sur {totalPages})
+              </span>
+            </div>
+
+            <div className="flex items-center space-x-1.5 sm:space-x-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCurrentPage((prev) => Math.max(1, prev - 1));
+                  if (typeof window !== "undefined") {
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }
+                }}
+                disabled={safeCurrentPage <= 1}
+                aria-label="Page précédente"
+                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all flex items-center space-x-1 ${
+                  safeCurrentPage <= 1
+                    ? "opacity-40 cursor-not-allowed border-slate-200 dark:border-zinc-800 text-slate-400 dark:text-zinc-500"
+                    : "border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer"
+                }`}
+              >
+                <span>← Précédent</span>
+              </button>
+
+              <div className="flex items-center space-x-1">
+                {getPaginationPageNumbers(safeCurrentPage, totalPages).map((p, idx) =>
+                  p === "..." ? (
+                    <span key={`dots-${idx}`} className="px-2 py-1 text-xs text-slate-400 dark:text-zinc-500">
+                      …
+                    </span>
+                  ) : (
+                    <button
+                      key={`page-${p}`}
+                      type="button"
+                      onClick={() => {
+                        setCurrentPage(Number(p));
+                        if (typeof window !== "undefined") {
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }
+                      }}
+                      aria-label={`Aller à la page ${p}`}
+                      aria-current={p === safeCurrentPage ? "page" : undefined}
+                      className={`min-w-8 h-8 px-2 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center justify-center ${
+                        p === safeCurrentPage
+                          ? "bg-blue-600 text-white font-bold shadow-xs"
+                          : "text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 border border-transparent"
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  )
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCurrentPage((prev) => Math.min(totalPages, prev + 1));
+                  if (typeof window !== "undefined") {
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }
+                }}
+                disabled={safeCurrentPage >= totalPages}
+                aria-label="Page suivante"
+                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all flex items-center space-x-1 ${
+                  safeCurrentPage >= totalPages
+                    ? "opacity-40 cursor-not-allowed border-slate-200 dark:border-zinc-800 text-slate-400 dark:text-zinc-500"
+                    : "border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer"
+                }`}
+              >
+                <span>Suivant →</span>
+              </button>
+            </div>
+          </nav>
+        )}
+      </>
+    )}
 
       {/* Discovery & Sources Registry Modal */}
       {isDiscoveryOpen && (
