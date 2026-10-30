@@ -23,7 +23,7 @@ async function run() {
   if (vermegOpps && vermegOpps.length > 0) {
     const opp = vermegOpps[0];
     const { data: user } = await supabase.auth.admin.listUsers();
-    const candidateUser = user.users.find((u) => u.email === "chaarimahdi100@gmail.com") || user.users[0];
+    const candidateUser = user.users.find((u) => u.email === (process.env.TEST_CANDIDATE_EMAIL || "candidate@example.com")) || user.users[0];
     const { data: existingApp } = await supabase
       .from("applications")
       .select("id")
@@ -50,7 +50,7 @@ async function run() {
 
   // Ensure Medianet application is owned by candidate user
   const { data: user } = await supabase.auth.admin.listUsers();
-  const candidateUser = user.users.find((u) => u.email === "chaarimahdi100@gmail.com") || user.users[0];
+  const candidateUser = user.users.find((u) => u.email === (process.env.TEST_CANDIDATE_EMAIL || "candidate@example.com")) || user.users[0];
   await supabase
     .from("applications")
     .update({ user_id: candidateUser.id })

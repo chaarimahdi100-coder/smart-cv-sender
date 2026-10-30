@@ -31,7 +31,7 @@ describe("Opportunity Lifecycle Intelligence & Candidate Availability Resolution
   const feb2027Candidate: CandidateData = {
     first_name: "Mahdi",
     last_name: "Chaari",
-    email: "chaarimahdi100@gmail.com",
+    email: "candidate.mahdi@example.com",
     school: "Esprit School of Business",
     degree: "Licence en Informatique de Gestion (Business Information Systems)",
     specialty: "Business Information Systems",
