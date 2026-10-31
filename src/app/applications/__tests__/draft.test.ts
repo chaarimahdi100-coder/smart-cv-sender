@@ -144,3 +144,29 @@ test("Regression: saveDraft handles empty recipient email without throwing permi
   assert.ok(payload.body.length > 0);
 });
 
+
+test("Regression: Server Component draft/page.tsx performs NO database mutations during render", async () => {
+  const fs = await import("fs");
+  const draftPageContent = fs.readFileSync("src/app/applications/[id]/draft/page.tsx", "utf8");
+
+  // Server Components rendering a GET page must not mutate DB state
+  assert.equal(
+    /\.(update|insert|delete|upsert|rpc)\(/.test(draftPageContent),
+    false,
+    "draft/page.tsx must never execute .update(), .insert(), .delete(), .upsert(), or .rpc() during component render"
+  );
+
+  // Must not import or use getServiceRoleClient
+  assert.equal(
+    draftPageContent.includes("getServiceRoleClient"),
+    false,
+    "draft/page.tsx must not use privileged getServiceRoleClient during rendering"
+  );
+
+  // Must display Simulation Mode Banner
+  assert.match(
+    draftPageContent,
+    /Mode simulation actif — Aucun courriel réel n’est transmis\./,
+    "draft/page.tsx must display the simulation banner"
+  );
+});

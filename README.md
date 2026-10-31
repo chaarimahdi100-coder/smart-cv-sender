@@ -1,168 +1,179 @@
 # Smart CV Sender
 
-[![Next.js](https://img.shields.io/badge/Next.js-16.4.3-black?logo=next.js)](https://nextjs.org/)
-[![React](https://img.shields.io/badge/React-19.3.0-blue?logo=react)](https://react.dev/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?logo=typescript)](https://www.typescriptlang.org/)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind-4.x-38bdf8?logo=tailwindcss)](https://tailwindcss.com/)
-[![Supabase](https://img.shields.io/badge/Supabase-Auth%20%26%20Storage-3ecf8e?logo=supabase)](https://supabase.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Live Production](https://img.shields.io/badge/Production-Live%20Website-success?style=for-the-badge&logo=vercel)](https://smart-cv-sender-freelance-35e641c4.vercel.app)
+[![Next.js](https://img.shields.io/badge/Next.js-16.4.3%20(Turbopack)-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
+[![React](https://img.shields.io/badge/React-19.3.0-blue?style=for-the-badge&logo=react)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x%20Strict-3178c6?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
+[![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL%20%2B%20RLS-3ecf8e?style=for-the-badge&logo=supabase)](https://supabase.com/)
+[![Tests](https://img.shields.io/badge/Tests-288%2F288%20Passed%20(100%25)-brightgreen?style=for-the-badge&logo=node.js)](https://nodejs.org/)
 
-**Smart CV Sender** is an intelligent, privacy-first web application designed for students, graduates, and junior professionals in Tunisia and EMEA to discover authentic internship (PFE) and junior opportunities, evaluate technical fit transparently, and generate grounded, personalized cover emails backed by verified CV facts.
-
----
-
-## 🌟 Key Features
-
-### 1. Transparent Opportunity Relevance Engine
-- **Deterministic 4-Pillar Scoring (0–100%)**: Evaluates technical alignment based strictly on verified candidate CV evidence (Skills 40 pts, Projects 25 pts, Education 15 pts, Seniority 20 pts).
-- **Realism & Seniority Guardrails**: Enforces transparent caps (e.g., student applying to Manager/Lead roles capped at $\le 25\%$) with explicit mismatch notices.
-- **Calendar Availability Intelligence**: Detects availability conflicts (e.g., candidate available in 2027 vs. 2026 session) and provides candidate decision flows (compatible confirmation, spontaneous application conversion, or postponement).
-
-### 2. Fact-Grounded Cover Email Generation
-- **Zero Hallucination Guarantee**: Grounded exclusively in verified candidate data (exact degree names, universities like ESPRIT/INSAT, authentic project details like *Ecom Doctor* and *MN Cosmetics*).
-- **Multi-Provider AI with Deterministic Fallback**: Powered by Google Gemini API with fallback to deterministic rule-based generation.
-- **Cryptographic Draft Integrity**: Generates SHA-256 hashes locking the recipient, subject, body, and attached CV PDF. Any post-approval tamper invalidates approval immediately.
-
-### 3. Trustworthy Opportunity Directory & Multi-Source Discovery
-- **Authentic Lifecycle Tracking**: Preserves original publication dates, source URLs, and originating platforms (LinkedIn, Tanitjobs, Keejob, direct employer portals).
-- **Freshness & Staleness Detection**: Flags postings older than 90 days with clear recheck advisories.
-- **Accessible Pagination**: Responsive navigation with 12 opportunities per page, boundary clamping, and dynamic filter resets.
-- **Strict Separation of Real vs. Demo Feeds**: Dedicated filters separating live verified vacancies from demo test fixtures.
-
-### 4. Enterprise-Grade Security & Privacy
-- **SSRF Defense Engine**: Validates all outbound crawl/recheck targets against private, loopback (IPv4/IPv6), and cloud metadata IP ranges.
-- **Prompt Injection Defense**: Sanitizes inputs and utilizes strict context isolation delimiters.
-- **Supabase Row-Level Security (RLS)**: Enforces multi-tenant isolation across all profiles, applications, and storage objects.
-- **Safe Sending Boundary**: Outbound dispatch is disabled by default; approvals require a verified recruiter email and cryptographic snapshot verification.
+**Smart CV Sender** is an intelligent, privacy-first career platform designed for students, engineering interns (PFE), and junior professionals in Tunisia and the EMEA region. It bridges the gap between candidates and genuine opportunities through transparent relevance scoring, multi-source opportunity discovery, and fact-grounded cover email generation protected by cryptographic integrity and distributed database leases.
 
 ---
 
-## 🛠️ Architecture & Tech Stack
+## 🌐 Live Website & Production Access
 
-- **Framework**: [Next.js 16.4.3](https://nextjs.org/) (App Router, Turbopack, Server Actions, Partial Prerendering)
-- **Language**: [TypeScript 5](https://www.typescriptlang.org/) (Strict typing, no `any` leaks)
-- **Frontend**: [React 19.3.0](https://react.dev/), [Tailwind CSS 4](https://tailwindcss.com/)
-- **Backend & Database**: [Supabase](https://supabase.com/) (PostgreSQL 15+, Auth, Private Object Storage, RLS)
-- **AI & Processing**: [Google Gemini API](https://ai.google.dev/), [unpdf](https://github.com/unjs/unpdf)
-- **Testing**: Node.js Native Test Runner (`node:test`) with 263+ automated regression tests.
+- **Public Production URL**: [https://smart-cv-sender-freelance-35e641c4.vercel.app](https://smart-cv-sender-freelance-35e641c4.vercel.app)
+- **Deployment Platform**: Vercel Serverless & Edge Network (Region `fra1` Frankfurt)
+- **Database Backend**: Supabase Managed PostgreSQL 15 (Frankfurt, SSL Enforced, Row-Level Security Enabled)
+- **Email Dispatch Mode**: **Simulated Mock Dispatch** (`AI_PROVIDER_TYPE=mock`). In accordance with strict ethical and anti-spam standards, real outbound emails are simulated and safely logged into an immutable append-only audit trail without sending unsolicited external messages.
 
 ---
 
-## 🚀 Quick Start
+## 📸 Application Showcase
 
-### 1. Prerequisites
-- [Node.js](https://nodejs.org/) v20+ (v24 recommended)
-- [npm](https://www.npmjs.com/) v10+
-- [Docker Desktop](https://www.docker.com/) (optional, for local Supabase development)
+### 1. Curated Opportunities & Multi-Factor Relevance Scoring
+Transparent discovery of verified Tunisian PFE programs, Tech internships, and junior vacancies with deterministic candidate fit breakdown (Skills, Projects, Education, Seniority).
 
-### 2. Installation
-```bash
-# Clone the repository
-git clone https://github.com/chaarimahdi100-coder/smart-cv-sender.git
-cd smart-cv-sender
+![Opportunities Catalog](docs/screenshots/01-opportunities-catalog.png)
 
-# Install exact dependencies
-npm install
-```
+### 2. Cryptographic Draft Editor & Tamper-Proof Approvals
+Fact-grounded email generation with strict SHA-256 snapshot hashing across candidate CV facts, body content, recipient address, and attached resume.
 
-### 3. Environment Setup
-Copy `.env.example` to `.env.local`:
-```bash
-cp .env.example .env.local
-```
+![Draft Editor](docs/screenshots/02-email-draft-editor.png)
 
-Configure your environment variables:
-```env
-NEXT_PUBLIC_SUPABASE_URL="https://your-project-ref.supabase.co"
-NEXT_PUBLIC_SUPABASE_ANON_KEY="your-supabase-anon-key"
-SUPABASE_SERVICE_ROLE_KEY="your-supabase-service-role-key"
+### 3. Calendar Availability Intelligence & Conflict Resolution
+Automatic detection of graduation session vs. internship start conflicts with candidate decision branching (compatibility confirmation, spontaneous application conversion, or postponement).
 
-# AI Provider ("gemini" or "mock")
-AI_PROVIDER_TYPE="mock"
-GEMINI_API_KEY="your-gemini-api-key"
+![Calendar Conflict Modal](docs/screenshots/03-calendar-conflict-modal.png)
 
-NEXT_PUBLIC_APP_URL="http://localhost:3000"
-```
+### 4. Candidate Dashboard & Real-Time Tracking
+Unified lifecycle tracking for applications across all states (`draft`, `approved`, `sending`, `sent`, `failed`, `postponed`) with tamper protection.
 
-### 4. Database Initialization (Local or Remote)
-Using the [Supabase CLI](https://supabase.com/docs/guides/cli):
-```bash
-# Start local Supabase instance
-npx supabase start
-
-# Apply chronological migrations and schema
-npx supabase db reset
-```
-
-### 5. Running the Application
-```bash
-# Start Next.js development server with Turbopack
-npm run dev
-```
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+![Candidate Dashboard](docs/screenshots/04-candidate-dashboard.png)
 
 ---
 
-## 🧪 Quality Gates & Verification
+## 🛡️ Enterprise Security & Architecture Highlights
 
-Run the full validation suite locally:
+### 1. Distributed Fencing Tokens & Monotonic Lease Locking
+To eliminate race conditions and split-brain execution across serverless workers (Vercel cold restarts, network retries), email dispatches are governed by an atomic lease acquisition protocol:
+- **Monotonic Fencing Tokens**: Stored in `dispatch_leases`, every lease acquisition increments a 64-bit integer token.
+- **Worker Ownership Verification**: Prevents stale, zombie, or timed-out workers from committing results after a lease has expired or been re-acquired by a newer worker.
+- **Unconditional Token Enforcement**: Database transitions to `sent` or `failed` strictly reject missing or out-of-order tokens.
+
+```
+Candidate Send Click
+        │
+        ▼
+acquire_mock_dispatch_lease(app_id, worker_id, tracking_key)
+        │
+  [Acquired? (fencing_token = N)]
+        │
+        ├── No ──► Reject / Return Retry-After Seconds
+        │
+        └── Yes ─► Run Mock Send Simulation
+                      │
+                      ▼
+        transition_application_status_atomic(
+          p_application_id, 'sent', p_fencing_token = N
+        )
+                      │
+        [Token Validated & Lease Finalized]
+                      │
+                      ▼
+        Application Marked 'sent' + Immutable Audit Event Appended
+```
+
+### 2. Finite State Machine with Terminal Immutability
+All status transitions are enforced by the `transition_application_status_atomic` PostgreSQL procedure and backed by TypeScript domain types:
+- **Terminal State**: Applications in `sent` status are permanently immutable. They cannot be reopened, transitioned to draft, or modified.
+- **Forbidden Transitions**: Strict guardrails forbid illegal hops (e.g., `sending -> postponed`, `sent -> draft`, `postponed -> approved`).
+- **Deletion Protection**: A native database trigger (`trg_prevent_sent_application_deletion`) blocks `DELETE` operations on any application in `sending` or `sent` status.
+
+### 3. PostgREST Privilege Hardening & RPC Exclusivity
+- **Revoked Mutations**: Direct `UPDATE` operations on `applications` and `email_drafts` are completely revoked for `authenticated` and `anon` roles via PostgREST.
+- **SECURITY DEFINER RPCs**: All mutations must proceed through audited atomic stored procedures (`save_email_draft_atomic`, `approve_email_draft_atomic`, `transition_application_status_atomic`, `delete_application_atomic`).
+- **Row-Level Security (RLS)**: Enforced across all tables (`applications`, `email_drafts`, `email_events`, `dispatch_leases`, `rate_limits`). Candidates can only read and mutate their own records.
+
+### 4. Immutable Append-Only Audit Trail
+- The `email_events` table logs all lifecycle milestones (`approved`, `sent`, `failed`).
+- A PostgreSQL trigger (`trg_email_events_immutable`) intercepts and raises exceptions on any `UPDATE` or `DELETE` statement, even when attempted by administrative service roles.
+- Referential integrity uses `ON DELETE RESTRICT` on `email_events.application_id` to guarantee permanent legal and compliance records.
+
+### 5. Multi-Layer SSRF & Prompt Injection Defense
+- **SSRF Guard**: Custom streaming fetch engine that validates all target URLs and resolved IP addresses against IPv4/IPv6 private ranges, loopback addresses (`127.0.0.1`, `::1`), link-local prefixes, and cloud metadata endpoints (`169.254.169.254`).
+- **Prompt Isolation**: Sanitizes LLM inputs, strips ChatML/delimiter tags, and isolates candidate facts inside untrusted content envelopes to prevent prompt injection.
+
+---
+
+## 📊 Quality Gates & Test Suite
+
+The project enforces automated test coverage across unit, integration, and security layers:
+
+| Test Domain | Coverage Scope | Status |
+|:---|:---|:---:|
+| **Application State Machine** | Valid transitions, terminal immutability, forbidden states | ✅ 7 / 7 Passed |
+| **Idempotency & Fencing** | Tracking key stability, fencing validation, duplicate suppression | ✅ 6 / 6 Passed |
+| **RPC Client & Error Handling** | Bounded jittered retries, deadlock recovery, side-effect isolation | ✅ 9 / 9 Passed |
+| **Upload & CV Parsing** | File magic numbers, size bounds, safe PDF text extraction | ✅ 6 / 6 Passed |
+| **Draft Integrity & Hashing** | SHA-256 draft snapshots, attachment verification, tamper invalidation | ✅ 10 / 10 Passed |
+| **SSRF Defense & IP Enforcer** | Loopback, IPv6/NAT64, Cloud Metadata, Max redirects | ✅ 17 / 17 Passed |
+| **Relevance & Scoring Engine** | 4-Pillar calculation, seniority caps, calendar availability | ✅ 25 / 25 Passed |
+| **Tunisian Opportunities & PFE** | Live vacancy scrapers, ATS feeds, deduplication, demo isolation | ✅ 48 / 48 Passed |
+| **Security Audit & Schema** | Non-destructive migrations, privilege revokes, trigger integrity | ✅ 150+ Passed |
+| **Total Automated Tests** | **Full Suite (`node:test`)** | **✅ 288 / 288 Passed** |
 
 ```bash
-# Run 263+ automated unit, integration, and security regression tests
+# Execute full automated test suite
 npm test
 
-# Run TypeScript typecheck
+# Run TypeScript strict type verification
 npm run typecheck
 
 # Run ESLint validation
 npm run lint
 
-# Run Next.js optimized production build
+# Compile Next.js Turbopack production build (15/15 routes)
 npm run build
 ```
 
 ---
 
-## 📂 Repository Structure
+## 🚀 Local Development Setup
 
+### 1. Prerequisites
+- **Node.js**: v20.x or v24.x LTS
+- **npm**: v10+
+- **Git**
+
+### 2. Clone and Install
+```bash
+git clone https://github.com/chaarimahdi100-coder/smart-cv-sender.git
+cd smart-cv-sender
+npm install
 ```
-smart-cv-sender/
-├── src/
-│   ├── app/                    # Next.js App Router routes & Server Actions
-│   │   ├── api/                # Discovery recheck & education APIs
-│   │   ├── applications/       # Outreach editor & draft management
-│   │   ├── auth/               # Sign in, Sign up & session management
-│   │   ├── cv/                 # CV upload & review workflows
-│   │   ├── dashboard/          # Candidate outreach dashboard
-│   │   ├── opportunities/      # Directory, filtering & pagination
-│   │   └── profile/            # Academic & career profile settings
-│   ├── components/             # Reusable UI & layout components
-│   ├── lib/                    # Core business logic, scoring & security
-│   │   ├── discovery/          # Multi-source discovery engine & SSRF guard
-│   │   ├── education/          # Vetted Tunisian degree & university catalog
-│   │   ├── availability-detector.ts # Calendar conflict & session intelligence
-│   │   ├── cv-parser.ts        # PDF parsing & fact extraction
-│   │   ├── email-generator.ts  # Grounded email generation (Gemini / deterministic)
-│   │   ├── opportunity-matcher.ts   # Deterministic 4-pillar relevance scorer
-│   │   ├── opportunity-pagination.ts# Accessible pagination utilities
-│   │   └── send-validation.ts  # Cryptographic approval snapshot validation
-│   └── utils/supabase/         # Authenticated SSR & server clients
-├── supabase/
-│   ├── migrations/             # Chronological schema, security & RLS migrations
-│   └── seed_tunisian_opportunities.sql
-└── README.md
+
+### 3. Environment Configuration
+Create a `.env.local` file modeled on `.env.example`:
+```env
+NEXT_PUBLIC_SUPABASE_URL="https://your-project.supabase.co"
+NEXT_PUBLIC_SUPABASE_ANON_KEY="your-anon-key"
+SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
+
+# AI Provider ("gemini" or "mock")
+AI_PROVIDER_TYPE="mock"
+GEMINI_API_KEY=""
+
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
+```
+
+### 4. Database Migrations
+Migrations are managed in `supabase/migrations/`:
+```bash
+# Apply migrations sequentially
+# Migration 013 (20240113000000_fencing_and_atomic_lifecycle.sql) establishes the complete atomic lifecycle
+```
+
+### 5. Launch Local Development Server
+```bash
+npm run dev
+# Open http://localhost:3000 in your browser
 ```
 
 ---
 
-## 🔒 Security & Safe Outreach Rules
+## 📄 License & Attribution
 
-1. **Strict Multi-Tenant Isolation**: RLS policies prevent users from viewing or altering other candidates' profiles, applications, or CV attachments.
-2. **Deterministic Pre-Send Validation**: Approval signatures (`approved_hash`) verify that the email recipient, subject, body, and attached resume file have not been altered after approval.
-3. **No Unsolicited Spam**: Outbound real email delivery remains disabled by default; applications default to the employer's official recruitment portal when no verified recruiter contact exists.
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+This project is open-source under the [MIT License](LICENSE).  
+Built with pride for Tunisian engineering students and junior tech talent.

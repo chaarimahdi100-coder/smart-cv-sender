@@ -14,6 +14,28 @@ export interface ExtractionResult {
 }
 
 /**
+ * Validates that binary data begins with genuine PDF magic bytes (%PDF-).
+ * RFC 3778 / ISO 32000-1 specifies that a PDF file must begin with "%PDF-" (% is 0x25, P is 0x50, D is 0x44, F is 0x46, - is 0x2D)
+ * within the first 1024 bytes of the stream.
+ */
+export function validatePdfMagicBytes(data: Uint8Array): boolean {
+  if (!data || data.byteLength < 5) return false;
+  const maxSearch = Math.min(data.byteLength - 4, 1024);
+  for (let i = 0; i < maxSearch; i++) {
+    if (
+      data[i] === 0x25 && // %
+      data[i + 1] === 0x50 && // P
+      data[i + 2] === 0x44 && // D
+      data[i + 3] === 0x46 && // F
+      data[i + 4] === 0x2D // -
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Extracts raw textual content from PDF binary data using unpdf.
  */
 export async function extractRawPdfText(
@@ -21,6 +43,10 @@ export async function extractRawPdfText(
 ): Promise<{ text: string; totalPages: number }> {
   if (!data || data.byteLength === 0) {
     throw new Error("Empty PDF data provided");
+  }
+
+  if (!validatePdfMagicBytes(data)) {
+    throw new Error("Invalid PDF format: file lacks genuine %PDF- magic bytes header");
   }
 
   try {

@@ -106,7 +106,7 @@ export async function checkRateLimit(
       .maybeSingle();
 
     if (selectError) {
-      // Table does not exist yet (pending migration 20240107000000_rate_limiting_and_security.sql)
+      // Table does not exist yet (pending migration 20240113000000_fencing_and_atomic_lifecycle.sql)
       if (selectError.code === "PGRST205" || selectError.code === "42P01") {
         console.warn(`[rate-limiter] rate_limits table not yet migrated. Permitting request for key "${key}".`);
         return {

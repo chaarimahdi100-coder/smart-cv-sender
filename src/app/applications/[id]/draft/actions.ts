@@ -9,8 +9,15 @@ import { generateProfessionalEmailDraft, resolveExactProgramName, type Candidate
 import { recordDraftProvenance } from "@/lib/draft-provenance";
 import { extractRawPdfText } from "@/lib/cv-parser";
 import { checkRateLimit } from "@/lib/rate-limiter";
-import { validateApprovedEmailForSend } from "@/lib/send-validation";
+import { validateApprovedEmailForSend, computeSendTrackingKey } from "@/lib/send-validation";
 import { sendEmailMock } from "@/lib/email-sender";
+import {
+  canTransition,
+  canEditDraft,
+  canDeleteApplication,
+  type ApplicationStatus,
+} from "@/lib/application-state-machine";
+import { executeAtomicRpcWithRetry } from "@/lib/rpc-client";
 import {
   validateAndNormalizeSeniorityClaims,
   detectStaleDraftClaims,
@@ -249,7 +256,7 @@ export async function saveDraft(formData: FormData) {
 
   try {
     const app = await ownedApplication(supabase, appId, user.id);
-    if (app.status === "sending" || app.status === "sent") {
+    if (!canEditDraft(app.status as ApplicationStatus)) {
       redirect(`/applications/${appId}/draft?error=${encodeURIComponent(`This application is currently ${app.status} and cannot be edited.`)}`);
     }
 
@@ -336,44 +343,37 @@ export async function saveDraft(formData: FormData) {
         }
       }
 
-      // Update draft row matching this application
+      // Non-destructive update/insert preserving conflict resolution fields and avoiding data loss
       const adminClient = getServiceRoleClient();
-      if (adminClient) {
-        const { error: draftUpdateError } = await adminClient
+      const clientToUse = adminClient || supabase;
+
+      const { data: existingDraftRow } = await clientToUse
+        .from("email_drafts")
+        .select("id, conflict_resolution, conflict_resolution_note")
+        .eq("application_id", appId)
+        .maybeSingle();
+
+      if (existingDraftRow) {
+        const { error: draftUpdateError } = await clientToUse
           .from("email_drafts")
           .update({
             recipient_email: recipient || "",
             subject: normalizedSubject,
             body: normalizedBody,
+            conflict_resolution: existingDraftRow.conflict_resolution ?? null,
+            conflict_resolution_note: existingDraftRow.conflict_resolution_note ?? null,
             approved_at: null,
             approved_hash: null,
             approved_attachment_hash: null,
             updated_at: new Date().toISOString(),
           })
-          .eq("application_id", appId);
+          .eq("id", existingDraftRow.id);
 
         if (draftUpdateError) {
-          await adminClient.from("email_drafts").delete().eq("application_id", appId);
-          const { error: insertError } = await adminClient
-            .from("email_drafts")
-            .insert({
-              application_id: appId,
-              recipient_email: recipient || "",
-              subject: normalizedSubject,
-              body: normalizedBody,
-              approved_at: null,
-              approved_hash: null,
-              approved_attachment_hash: null,
-              updated_at: new Date().toISOString(),
-            });
-
-          if (insertError) {
-            redirect(`/applications/${appId}/draft?error=${encodeURIComponent("Failed to save email draft: " + insertError.message)}`);
-          }
+          redirect(`/applications/${appId}/draft?error=${encodeURIComponent("Failed to save email draft: " + draftUpdateError.message)}`);
         }
       } else {
-        await supabase.from("email_drafts").delete().eq("application_id", appId);
-        const { error: insertError } = await supabase
+        const { error: insertError } = await clientToUse
           .from("email_drafts")
           .insert({
             application_id: appId,
@@ -441,8 +441,9 @@ export async function approveDraft(formData: FormData) {
 
   try {
     const application = await ownedApplication(supabase, appId, user.id);
-    if (application.status === "sending" || application.status === "sent") {
-      redirect(`/applications/${appId}/draft?error=${encodeURIComponent(`This application is currently ${application.status} and cannot be re-approved.`)}`);
+    const transitionCheck = canTransition(application.status as ApplicationStatus, "approved", { hasValidApproval: true });
+    if (!transitionCheck.allowed) {
+      redirect(`/applications/${appId}/draft?error=${encodeURIComponent(transitionCheck.reason || `Transition vers 'approved' impossible depuis '${application.status}'.`)}`);
     }
 
     // Opportunity lifecycle check: Block approval if vacancy is closed, expired, inactive, or past deadline
@@ -709,7 +710,7 @@ export async function regenerateDraft(formData: FormData) {
         .select("id");
 
       if (updateError || !updatedDrafts || updatedDrafts.length === 0) {
-        await supabase.from("email_drafts").delete().eq("application_id", appId);
+        // Safe insert when draft does not exist yet — never delete
         const { error: insertError } = await supabase
           .from("email_drafts")
           .insert({
@@ -927,7 +928,10 @@ export async function sendApprovedApplicationEmail(formData: FormData) {
       redirect(`/applications/${appId}/draft?error=${encodeURIComponent("Draft could not be found.")}`);
     }
 
-    const idempotencyKey = `idemp_${app.id}_${Date.now()}`;
+    // Derive deterministic, stable tracking key from application ID and approved draft hash
+    const idempotencyKey = draft.approved_hash
+      ? computeSendTrackingKey(app.id, draft.approved_hash)
+      : `idemp_${app.id}_${draft.id}`;
 
     // Cryptographic validation of approval signatures, hashes, and ownership
     const validation = validateApprovedEmailForSend({
@@ -961,126 +965,122 @@ export async function sendApprovedApplicationEmail(formData: FormData) {
       redirect(`/applications/${appId}/draft?error=${encodeURIComponent(validation.reason)}`);
     }
 
-    // Set status to sending
-    let sendingTransitioned = false;
-    type StatusRpcResult = { data: { success?: boolean; error?: string } | null; error: { code?: string; message: string } | null };
-    try {
-      const { data: rpcData, error: rpcError } = (await supabase.rpc("transition_application_status_atomic", {
-        p_application_id: appId,
-        p_new_status: "sending",
-        p_idempotency_key: idempotencyKey,
-      })) as unknown as StatusRpcResult;
-      if (!rpcError && rpcData?.success) {
-        sendingTransitioned = true;
+    // Generate unique worker ID for distributed lease tracking
+    const workerId = `worker_${crypto.randomUUID()}`;
+
+    // Acquire atomic dispatch lease and monotonic fencing token
+    const leaseOutcome = await executeAtomicRpcWithRetry<{
+      success: boolean;
+      action?: string;
+      fencing_token?: number;
+      lease_expires_at?: string;
+      result?: unknown;
+      error?: string;
+    }>(
+      () =>
+        supabase.rpc("acquire_mock_dispatch_lease", {
+          p_application_id: appId,
+          p_worker_id: workerId,
+          p_tracking_key: idempotencyKey,
+          p_ttl_seconds: 60,
+        }),
+      { rpcName: "acquire_mock_dispatch_lease" }
+    );
+
+    if (leaseOutcome.status === "missing_rpc") {
+      redirect(
+        `/applications/${appId}/draft?error=${encodeURIComponent(
+          "L'envoi sécurisé est temporairement verrouillé : la procédure de verrouillage atomique et de bail distribué n'est pas encore appliquée en base de données. L'opération a été suspendue pour garantir l'intégrité de vos candidatures."
+        )}`
+      );
+    }
+
+    if (leaseOutcome.status !== "success" || !leaseOutcome.data?.success) {
+      const errorMsg =
+        leaseOutcome.status === "business_error"
+          ? leaseOutcome.error
+          : leaseOutcome.status === "max_retries_exceeded"
+          ? "Conflit de concurrence temporaire. Veuillez réessayer."
+          : leaseOutcome.status === "database_error"
+          ? leaseOutcome.error
+          : "Impossible d'acquérir le bail d'envoi pour cette candidature.";
+      redirect(`/applications/${appId}/draft?error=${encodeURIComponent(errorMsg)}`);
+    }
+
+    // If the lease was already completed for this identical approved snapshot, short-circuit idempotently
+    if (leaseOutcome.data.action === "already_completed") {
+      revalidatePath(`/applications/${appId}/draft`);
+      revalidatePath("/dashboard");
+      redirect(`/applications/${appId}/draft?success=${encodeURIComponent("Cette candidature a déjà été envoyée avec succès (idempotence).")}`);
+    }
+
+    const fencingToken = leaseOutcome.data.fencing_token;
+    if (!fencingToken || fencingToken <= 0) {
+      redirect(`/applications/${appId}/draft?error=${encodeURIComponent("Jeton de clôture (fencing token) invalide reçu du serveur.")}`);
+    }
+
+    // Execute mock send with deterministic tracking key
+    const sendResult = await sendEmailMock(
+      {
+        to: validation.approvedEmail.to,
+        subject: validation.approvedEmail.subject,
+        body: validation.approvedEmail.body,
+        attachments: [
+          {
+            filename: "CV.pdf",
+            path: validation.approvedEmail.attachmentPath,
+          },
+        ],
+      },
+      {
+        trackingKey: idempotencyKey,
+        candidateEmail: user.email,
       }
-    } catch {
-      // Fallback
-    }
-
-    if (!sendingTransitioned) {
-      await supabase
-        .from("applications")
-        .update({
-          status: "sending",
-          send_idempotency_key: idempotencyKey,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", appId)
-        .eq("user_id", user.id);
-    }
-
-    // Execute mock send
-    const sendResult = await sendEmailMock({
-      to: validation.approvedEmail.to,
-      subject: validation.approvedEmail.subject,
-      body: validation.approvedEmail.body,
-      attachments: [{
-        filename: "CV.pdf",
-        path: validation.approvedEmail.attachmentPath,
-      }],
-    });
+    );
 
     if (sendResult.success) {
-      // Mark as sent
-      let sentTransitioned = false;
-      try {
-        const { data: rpcData, error: rpcError } = (await supabase.rpc("transition_application_status_atomic", {
-          p_application_id: appId,
-          p_new_status: "sent",
-        })) as unknown as StatusRpcResult;
-        if (!rpcError && rpcData?.success) {
-          sentTransitioned = true;
-        }
-      } catch {
-        // Fallback
-      }
+      // Transition to sent via atomic RPC with mandatory fencing token
+      const sentOutcome = await executeAtomicRpcWithRetry<{ success: boolean; error?: string }>(
+        () =>
+          supabase.rpc("transition_application_status_atomic", {
+            p_application_id: appId,
+            p_new_status: "sent",
+            p_fencing_token: fencingToken,
+            p_provider_id: sendResult.messageId || "mock_provider_sent",
+          }),
+        { rpcName: "transition_application_status_atomic", hasSideEffectsOccurred: true }
+      );
 
-      if (!sentTransitioned) {
-        await supabase
-          .from("applications")
-          .update({
-            status: "sent",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", appId)
-          .eq("user_id", user.id);
-      }
-
-      // Record event if table exists
-      try {
-        await supabase
-          .from("email_events")
-          .insert({
-            application_id: appId,
-            event_type: "sent",
-            provider_id: sendResult.messageId || "mock_provider_sent",
-          });
-      } catch (eventErr) {
-        console.warn("Could not insert email_event:", eventErr);
+      if (sentOutcome.status !== "success" || !sentOutcome.data?.success) {
+        const errorMsg =
+          sentOutcome.status === "business_error"
+            ? sentOutcome.error
+            : "L'envoi a été simulé, mais la finalisation en base de données a échoué. Votre candidature reste marquée 'en cours d'envoi' pour réconciliation.";
+        redirect(`/applications/${appId}/draft?error=${encodeURIComponent(errorMsg)}`);
       }
 
       revalidatePath(`/applications/${appId}/draft`);
       revalidatePath("/dashboard");
       redirect(`/applications/${appId}/draft?success=${encodeURIComponent("Application email successfully sent (Simulated Demo Mode).")}`);
     } else {
-      // Mark as failed
-      let failedTransitioned = false;
-      try {
-        const { data: rpcData, error: rpcError } = (await supabase.rpc("transition_application_status_atomic", {
-          p_application_id: appId,
-          p_new_status: "failed",
-        })) as unknown as StatusRpcResult;
-        if (!rpcError && rpcData?.success) {
-          failedTransitioned = true;
-        }
-      } catch {
-        // Fallback
-      }
+      // Transition to failed via atomic RPC with fencing token
+      const failOutcome = await executeAtomicRpcWithRetry<{ success: boolean; error?: string }>(
+        () =>
+          supabase.rpc("transition_application_status_atomic", {
+            p_application_id: appId,
+            p_new_status: "failed",
+            p_fencing_token: fencingToken,
+            p_error_message: sendResult.error || "Simulation error",
+          }),
+        { rpcName: "transition_application_status_atomic", hasSideEffectsOccurred: true }
+      );
 
-      if (!failedTransitioned) {
-        await supabase
-          .from("applications")
-          .update({
-            status: "failed",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", appId)
-          .eq("user_id", user.id);
-      }
+      const errorMsg =
+        failOutcome.status === "business_error"
+          ? `${sendResult.error || "Échec de l'envoi"} (${failOutcome.error})`
+          : sendResult.error || "Simulation send failed";
 
-      try {
-        await supabase
-          .from("email_events")
-          .insert({
-            application_id: appId,
-            event_type: "failed",
-            error_message: sendResult.error || "Mock transmission failed",
-          });
-      } catch (eventErr) {
-        console.warn("Could not insert email_event:", eventErr);
-      }
-
-      redirect(`/applications/${appId}/draft?error=${encodeURIComponent("Send simulation failed: " + (sendResult.error || "Unknown error"))}`);
+      redirect(`/applications/${appId}/draft?error=${encodeURIComponent(errorMsg)}`);
     }
   } catch (err: unknown) {
     if (err instanceof Error && "digest" in err && typeof (err as { digest: unknown }).digest === "string" && (err as { digest: string }).digest.startsWith("NEXT_REDIRECT")) {
@@ -1119,15 +1119,30 @@ export async function resolveDraftConflict(formData: FormData) {
     const app = await ownedApplication(supabase, appId, user.id);
 
     if (resolution === "cancel_postpone") {
-      const adminClient = getServiceRoleClient();
-      const clientToUse = adminClient || supabase;
-      await clientToUse
-        .from("applications")
-        .update({
-          status: "postponed",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", appId);
+      const transitionCheck = canTransition(app.status as ApplicationStatus, "postponed");
+      if (!transitionCheck.allowed) {
+        redirect(`/applications/${appId}/draft?error=${encodeURIComponent(transitionCheck.reason || "Transition vers 'postponed' refusée.")}`);
+      }
+
+      // Transition to 'postponed' via atomic RPC
+      const postponeOutcome = await executeAtomicRpcWithRetry<{ success: boolean; error?: string }>(
+        () =>
+          supabase.rpc("transition_application_status_atomic", {
+            p_application_id: appId,
+            p_new_status: "postponed",
+          }),
+        { rpcName: "transition_application_status_atomic" }
+      );
+
+      if (postponeOutcome.status !== "success" || !postponeOutcome.data?.success) {
+        const errorMsg =
+          postponeOutcome.status === "business_error"
+            ? postponeOutcome.error
+            : postponeOutcome.status === "success"
+            ? (postponeOutcome.data?.error || "Échec du report de la candidature.")
+            : "Échec du report de la candidature.";
+        redirect(`/applications/${appId}/draft?error=${encodeURIComponent(errorMsg)}`);
+      }
 
       revalidatePath(`/applications/${appId}/draft`);
       revalidatePath("/applications");
@@ -1192,6 +1207,27 @@ export async function resolveDraftConflict(formData: FormData) {
     const adminClient = getServiceRoleClient();
     const clientToUse = adminClient || supabase;
 
+    // If application was postponed, reactivate it back to 'draft' via atomic state machine RPC
+    if (app.status === "postponed") {
+      const draftTransition = await executeAtomicRpcWithRetry<{ success: boolean; error?: string }>(
+        () =>
+          supabase.rpc("transition_application_status_atomic", {
+            p_application_id: appId,
+            p_new_status: "draft",
+          }),
+        { rpcName: "transition_application_status_atomic" }
+      );
+      if (draftTransition.status !== "success" || !draftTransition.data?.success) {
+        const errorMsg =
+          draftTransition.status === "business_error"
+            ? draftTransition.error
+            : draftTransition.status === "success"
+            ? (draftTransition.data?.error || "Impossible de réactiver la candidature en brouillon.")
+            : "Impossible de réactiver la candidature en brouillon.";
+        redirect(`/applications/${appId}/draft?error=${encodeURIComponent(errorMsg)}`);
+      }
+    }
+
     const { error: updateError } = await clientToUse
       .from("email_drafts")
       .update({
@@ -1235,3 +1271,77 @@ export async function resolveDraftConflict(formData: FormData) {
 }
 
 
+
+
+/**
+ * Deletes an application and its associated draft if permitted by business rules.
+ *
+ * STRICT SECURITY ENFORCEMENT:
+ * - A candidature in 'sending' must NOT be deleted.
+ * - A candidature in 'sent' must NOT be deleted.
+ * - Permitted only in 'draft', 'failed', or 'postponed'.
+ * - Preserves complete tenant isolation (verifies authenticated ownership).
+ */
+export async function deleteApplication(formData: FormData) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login?error=" + encodeURIComponent("Veuillez vous connecter pour gérer vos candidatures."));
+  }
+
+  const appId = text(formData, "application_id").trim();
+  if (!appId) {
+    redirect("/dashboard?error=" + encodeURIComponent("Identifiant de candidature manquant."));
+  }
+
+  try {
+    const app = await ownedApplication(supabase, appId, user.id);
+
+    const deleteCheck = canDeleteApplication(app.status as ApplicationStatus);
+    if (!deleteCheck.allowed) {
+      redirect(`/applications/${appId}/draft?error=${encodeURIComponent(deleteCheck.reason || "Suppression refusée.")}`);
+    }
+
+    // Execute atomic application deletion via stored procedure or direct atomic cascade
+    const deleteOutcome = await executeAtomicRpcWithRetry<{
+      success: boolean;
+      error?: string;
+    }>(
+      () =>
+        supabase.rpc("delete_application_atomic", {
+          p_application_id: appId,
+        }),
+      { rpcName: "delete_application_atomic" }
+    );
+
+    if (deleteOutcome.status === "success" && deleteOutcome.data?.success) {
+      // Deleted atomically via RPC
+    } else if (deleteOutcome.status === "business_error") {
+      redirect(`/applications/${appId}/draft?error=${encodeURIComponent(deleteOutcome.error || "Suppression refusée.")}`);
+    } else {
+      // Fallback to single atomic delete of applications (PostgreSQL CASCADE automatically deletes email_drafts atomically)
+      const { error: appDeleteError } = await supabase
+        .from("applications")
+        .delete()
+        .eq("id", appId)
+        .eq("user_id", user.id);
+
+      if (appDeleteError) {
+        redirect(`/applications/${appId}/draft?error=${encodeURIComponent("Échec de la suppression : " + appDeleteError.message)}`);
+      }
+    }
+  } catch (err: unknown) {
+    if (err instanceof Error && "digest" in err && typeof (err as { digest: unknown }).digest === "string" && (err as { digest: string }).digest.startsWith("NEXT_REDIRECT")) {
+      throw err;
+    }
+    const message = err instanceof Error ? err.message : "Erreur inattendue lors de la suppression";
+    redirect(`/dashboard?error=${encodeURIComponent(message)}`);
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/opportunities");
+  redirect("/dashboard?success=" + encodeURIComponent("Candidature supprimée avec succès."));
+}

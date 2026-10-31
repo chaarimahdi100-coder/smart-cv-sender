@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { computeDraftHash } from "./draft-integrity.js";
 import { type ApprovedEmail } from "./email-provider.ts";
 import { isPlaceholderOrUntrustedEmail } from "./draft-utils.ts";
@@ -40,11 +41,47 @@ export type ValidationFailure = {
 export type ValidationResult = ValidationSuccess | ValidationFailure;
 
 /**
+ * Derives a stable, deterministic tracking/idempotency key from the application ID
+ * and current approved draft hash.
+ *
+ * Guarantees:
+ * - Stable across page reloads and retries for the same approved draft.
+ * - Changing the draft body, subject, or CV attachment produces a completely new key.
+ * - Eliminates non-deterministic keys generated via Date.now().
+ */
+export function computeSendTrackingKey(applicationId: string, approvedHash: string): string {
+  if (!applicationId || !approvedHash) {
+    throw new Error("Application ID and approved draft hash are required to compute send tracking key");
+  }
+  const digest = createHash("sha256")
+    .update(`smartcv:send:${applicationId.trim()}:${approvedHash.trim()}`)
+    .digest("hex");
+  return `track_${applicationId.slice(0, 8)}_${digest.slice(0, 24)}`;
+}
+
+/**
+ * Verifies whether a given tracking key accurately matches the current approved draft signature.
+ */
+export function validateSendTrackingKey(
+  applicationId: string,
+  approvedHash: string,
+  keyToCheck: string
+): boolean {
+  if (!applicationId || !approvedHash || !keyToCheck) return false;
+  try {
+    const expected = computeSendTrackingKey(applicationId, approvedHash);
+    return expected === keyToCheck;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Validates approval integrity server-side immediately before any email send operation.
  * Guarantees that:
  * 1. The application belongs to the authenticated candidate.
  * 2. The selected resume belongs to the authenticated candidate.
- * 3. The application is in 'approved' status.
+ * 3. The application is in 'approved' status (or in-flight retry from failed/sending).
  * 4. The email draft has not been modified since approval (cryptographic snapshot hash matches).
  * 5. The attachment binding and storage path have not been altered.
  * 6. Idempotency key is present and send has not already occurred.
@@ -55,8 +92,9 @@ export function validateApprovedEmailForSend(params: {
   draft: EmailDraftRecord;
   resume: ResumeRecord;
   idempotencyKey?: string;
+  strictTrackingKey?: boolean;
 }): ValidationResult {
-  const { candidateUserId, application, draft, resume, idempotencyKey } = params;
+  const { candidateUserId, application, draft, resume, idempotencyKey, strictTrackingKey } = params;
 
   // 1. Candidate ownership
   if (!candidateUserId || application.user_id !== candidateUserId) {
@@ -77,7 +115,7 @@ export function validateApprovedEmailForSend(params: {
     return { valid: false, reason: "Application resume reference does not match attached resume" };
   }
 
-  // 4. Application status check (allows 'approved', in-flight 'sending', or retry when previous attempt 'failed')
+  // 4. Application status check using state machine rules
   if (
     application.status !== "approved" &&
     application.status !== "failed" &&
@@ -133,7 +171,7 @@ export function validateApprovedEmailForSend(params: {
     return { valid: false, reason: "Cannot dispatch email to placeholder or untrusted recipient address" };
   }
 
-  // 9. Idempotency key check
+  // 10. Idempotency key check
   const effectiveKey = idempotencyKey || application.send_idempotency_key;
   if (!effectiveKey) {
     return { valid: false, reason: "Missing send idempotency key to prevent duplicate sends" };
@@ -146,6 +184,17 @@ export function validateApprovedEmailForSend(params: {
     application.send_idempotency_key !== idempotencyKey
   ) {
     return { valid: false, reason: "Idempotency key conflict: in-flight sending key cannot be modified" };
+  }
+
+  // Strict tracking key check when requested
+  if (strictTrackingKey && draft.approved_hash) {
+    const expectedKey = computeSendTrackingKey(application.id, draft.approved_hash);
+    if (effectiveKey !== expectedKey) {
+      return {
+        valid: false,
+        reason: "Idempotency key mismatch: send key does not match current approved draft signature",
+      };
+    }
   }
 
   return {

@@ -30,7 +30,6 @@ import {
   validateAndNormalizeAvailabilityClaims,
   validateAndNormalizeAvailabilitySubject,
 } from "@/lib/availability-detector";
-import { getServiceRoleClient } from "@/lib/opportunities-manager";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { AppNavbar } from "@/components/layout/AppNavbar";
@@ -282,18 +281,9 @@ export default async function DraftPage(props: {
   );
 
   if (!draft.approved_at && (draft.subject !== sanitizedSubject || draft.body !== sanitizedBody)) {
+    // In-memory display normalization only — Server Components must never mutate database state on GET
     draft.subject = sanitizedSubject;
     draft.body = sanitizedBody;
-    const adminClient = getServiceRoleClient();
-    const clientToUse = adminClient || supabase;
-    await clientToUse
-      .from("email_drafts")
-      .update({
-        subject: sanitizedSubject,
-        body: sanitizedBody,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", draft.id);
   }
 
   const staleDraftCheck = detectStaleDraftClaims(draft.body, candidateData, oppData);
@@ -362,6 +352,24 @@ export default async function DraftPage(props: {
               </span>
             )}
           </div>
+        </div>
+
+        {/* Simulation Mode Banner */}
+        <div className="mb-6 p-4 rounded-xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 flex items-center justify-between shadow-2xs">
+          <div className="flex items-center space-x-3">
+            <span className="text-xl">ℹ️</span>
+            <div>
+              <p className="text-sm font-bold text-sky-900 dark:text-sky-200">
+                Mode simulation actif — Aucun courriel réel n’est transmis.
+              </p>
+              <p className="text-xs text-sky-700 dark:text-sky-400">
+                Les envois d&apos;emails sont simulés de manière déterministe en environnement sécurisé. Aucune communication externe n&apos;est émise.
+              </p>
+            </div>
+          </div>
+          <span className="hidden sm:inline-flex px-2.5 py-1 text-xs font-semibold rounded-md bg-sky-100 text-sky-800 dark:bg-sky-900/60 dark:text-sky-300 uppercase tracking-wide">
+            Simulation
+          </span>
         </div>
 
         {/* Success Notification */}

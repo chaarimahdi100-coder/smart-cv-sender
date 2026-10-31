@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
-import { parseAndExtractCV } from "@/lib/cv-parser";
+import { parseAndExtractCV, validatePdfMagicBytes } from "@/lib/cv-parser";
 import { redirect } from "next/navigation";
 import { sanitizeProfileData } from "@/lib/profile-utils";
 import { checkRateLimit } from "@/lib/rate-limiter";
@@ -37,6 +37,11 @@ export async function uploadCV(formData: FormData) {
   const arrayBuffer = await file.arrayBuffer();
   const uint8Array = new Uint8Array(arrayBuffer);
 
+  // Security Hardening: Validate genuine PDF magic bytes (%PDF-) before storage or parsing
+  if (!validatePdfMagicBytes(uint8Array)) {
+    redirect("/cv?error=" + encodeURIComponent("Invalid file format: file does not contain valid PDF magic bytes (%PDF-)."));
+  }
+
   // Parse actual text and extract verifiable candidate fields
   const extractionResult = await parseAndExtractCV(uint8Array);
 
@@ -65,6 +70,12 @@ export async function uploadCV(formData: FormData) {
     .single();
 
   if (dbError || !resumeRecord) {
+    // Prevent orphaned storage objects on database failure
+    try {
+      await supabase.storage.from("resumes").remove([filePath]);
+    } catch {
+      // Best-effort cleanup
+    }
     redirect(`/cv?error=${encodeURIComponent("Failed to save resume record: " + (dbError?.message || "Unknown error"))}`);
   }
 
