@@ -13,7 +13,9 @@
 
 ## 🌐 Live Website & Production Access
 
-- **Public Production URL**: [https://smart-cv-sender-freelance-35e641c4.vercel.app](https://smart-cv-sender-freelance-35e641c4.vercel.app)
+- **Public Production URL**: [https://smart-cv-sender.vercel.app](https://smart-cv-sender.vercel.app)
+- **Canonical Team URL**: [https://smart-cv-sender-freelance-35e641c4.vercel.app](https://smart-cv-sender-freelance-35e641c4.vercel.app)
+- **GitHub Repository**: [https://github.com/chaarimahdi100-coder/smart-cv-sender](https://github.com/chaarimahdi100-coder/smart-cv-sender)
 - **Deployment Platform**: Vercel Serverless & Edge Network (Region `fra1` Frankfurt)
 - **Database Backend**: Supabase Managed PostgreSQL 15 (Frankfurt, SSL Enforced, Row-Level Security Enabled)
 - **Email Dispatch Mode**: **Simulated Mock Dispatch** (`AI_PROVIDER_TYPE=mock`). In accordance with strict ethical and anti-spam standards, real outbound emails are simulated and safely logged into an immutable append-only audit trail without sending unsolicited external messages.
