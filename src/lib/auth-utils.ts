@@ -1,6 +1,6 @@
 /**
  * Authentication utility functions for email normalization, input validation,
- * password matching, and safe error handling.
+ * password matching, safe error handling, origin resolution, and open-redirect prevention.
  */
 
 export function normalizeEmail(email: unknown): string {
@@ -84,4 +84,87 @@ export function sanitizeAuthError(error: unknown): string {
   }
 
   return msg;
+}
+
+export const PRODUCTION_CANONICAL_ORIGIN = "https://smart-cv-sender.vercel.app";
+export const LOCAL_DEV_ORIGIN = "http://localhost:3000";
+
+/**
+ * Explicit allowlist of approved hostnames and deployment patterns.
+ * Prevents arbitrary header poisoning via manipulated x-forwarded-host.
+ */
+export const ALLOWED_HOSTNAME_PATTERNS: readonly RegExp[] = [
+  /^localhost(?::\d+)?$/i,
+  /^127\.0\.0\.1(?::\d+)?$/i,
+  /^smart-cv-sender\.vercel\.app$/i,
+  /^smart-cv-sender-[a-zA-Z0-9_-]+\.vercel\.app$/i,
+];
+
+/**
+ * Validates whether a given host string belongs to the approved allowlist.
+ */
+export function isAllowedHost(host: unknown): boolean {
+  if (typeof host !== "string" || !host.trim()) return false;
+  const trimmed = host.trim().toLowerCase();
+  return ALLOWED_HOSTNAME_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+/**
+ * Safely resolves the application origin using request headers and an explicit allowlist.
+ * If the header host is untrusted, invalid, or missing, it falls back to the canonical
+ * environment origin (production or local dev).
+ */
+export function resolveSafeOriginFromHeaders(headersReader?: {
+  get(headerName: string): string | null | undefined;
+} | null): string {
+  const isProd = process.env.NODE_ENV === "production";
+  const configuredAppUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+
+  // Establish fallback origin
+  let fallbackOrigin = isProd ? PRODUCTION_CANONICAL_ORIGIN : (configuredAppUrl || LOCAL_DEV_ORIGIN);
+  if (!fallbackOrigin.startsWith("http://") && !fallbackOrigin.startsWith("https://")) {
+    fallbackOrigin = `https://${fallbackOrigin}`;
+  }
+
+  if (!headersReader) {
+    return fallbackOrigin;
+  }
+
+  // Check forwarded host or standard host
+  const rawForwarded = headersReader.get("x-forwarded-host")?.trim();
+  const rawHost = headersReader.get("host")?.trim();
+  const candidateHost = rawForwarded || rawHost;
+
+  if (candidateHost && isAllowedHost(candidateHost)) {
+    const rawProto = headersReader.get("x-forwarded-proto")?.trim().toLowerCase();
+    const isLocal = candidateHost.startsWith("localhost") || candidateHost.startsWith("127.0.0.1");
+    const proto = rawProto === "https" ? "https" : (isLocal && rawProto !== "https") ? "http" : "https";
+    return `${proto}://${candidateHost}`;
+  }
+
+  return fallbackOrigin;
+}
+
+/**
+ * Sanitizes destination paths to strictly prevent open-redirect vulnerabilities.
+ * Disallows protocol-relative URLs (//evil.com), backslashes (/\\evil.com),
+ * and absolute URLs with schemes.
+ */
+export function sanitizeNextRedirect(next: unknown, fallback = "/dashboard"): string {
+  if (typeof next !== "string" || !next.trim()) return fallback;
+  const trimmed = next.trim();
+
+  // Must begin with a single slash, not double slash or slash-backslash
+  if (
+    trimmed.startsWith("/") &&
+    !trimmed.startsWith("//") &&
+    !trimmed.startsWith("/\\") &&
+    !trimmed.includes("://") &&
+    !trimmed.includes("\r") &&
+    !trimmed.includes("\n")
+  ) {
+    return trimmed;
+  }
+
+  return fallback;
 }

@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { logout } from "@/app/auth/actions";
+import { isDemoUser } from "@/lib/demo-mode";
 
 export interface AppNavbarProps {
   userEmail?: string | null;
@@ -12,6 +13,7 @@ export interface AppNavbarProps {
 export function AppNavbar({ userEmail }: AppNavbarProps) {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const isDemo = isDemoUser(userEmail);
 
   const navLinks = [
     { label: "Dashboard", href: "/dashboard" },
@@ -73,12 +75,20 @@ export function AppNavbar({ userEmail }: AppNavbarProps) {
           </div>
 
           {/* Right Action: User profile info or login */}
-          <div className="hidden md:flex items-center space-x-4">
+          <div className="hidden md:flex items-center space-x-3">
             {userEmail ? (
               <div className="flex items-center space-x-3">
+                {/* Demo Mode Badge */}
+                {isDemo && (
+                  <div className="inline-flex items-center space-x-1.5 text-xs font-semibold text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-3 py-1.5 rounded-full border border-amber-200 dark:border-amber-800/80 shadow-2xs">
+                    <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                    <span>Mode Démo Public</span>
+                  </div>
+                )}
+
                 <div className="flex items-center space-x-2 text-xs font-medium text-slate-600 dark:text-zinc-400 bg-slate-100 dark:bg-zinc-800/80 px-3 py-1.5 rounded-full border border-slate-200/60 dark:border-zinc-700/60">
-                  <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="truncate max-w-[200px]">{userEmail}</span>
+                  <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                  <span className="truncate max-w-[180px]">{userEmail}</span>
                 </div>
                 <form action={logout}>
                   <button
@@ -132,9 +142,16 @@ export function AppNavbar({ userEmail }: AppNavbarProps) {
         <div className="md:hidden border-t border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 pt-3 pb-5 space-y-2">
           {userEmail && (
             <div className="mb-3 pb-3 border-b border-slate-100 dark:border-zinc-800 flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-500 dark:text-zinc-400 truncate">
-                {userEmail}
-              </span>
+              <div className="flex items-center space-x-2">
+                {isDemo && (
+                  <span className="text-2xs font-semibold px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300">
+                    Démo
+                  </span>
+                )}
+                <span className="text-xs font-medium text-slate-500 dark:text-zinc-400 truncate">
+                  {userEmail}
+                </span>
+              </div>
               <form action={logout}>
                 <button
                   type="submit"

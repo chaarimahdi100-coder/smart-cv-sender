@@ -6,6 +6,10 @@ import { OpportunityMatchBreakdown } from "@/lib/opportunity-matcher";
 import {
   seedTunisianOpportunitiesAction,
   toggleOpportunityActiveAction,
+  createOpportunityAction,
+  getOpportunityApplicantsAction,
+  updateApplicantReviewStatusAction,
+  type OpportunityApplicant,
 } from "./manage-actions";
 import {
   runDiscoverySyncAction,
@@ -96,6 +100,71 @@ export function OpportunityDirectoryClient({
   // Legacy demo seeding state
   const [isSeeding, setIsSeeding] = useState(false);
   const [seedMessage, setSeedMessage] = useState<string | null>(null);
+  // Manager: Create Opportunity Modal State
+  const [isCreateOpportunityOpen, setIsCreateOpportunityOpen] = useState(false);
+  const [isCreatingOpportunity, setIsCreatingOpportunity] = useState(false);
+  const [createOpportunityError, setCreateOpportunityError] = useState<string | null>(null);
+
+  // Manager: Review Applicants Modal State
+  const [isReviewApplicantsOpen, setIsReviewApplicantsOpen] = useState(false);
+  const [selectedOpportunityForApplicants, setSelectedOpportunityForApplicants] = useState<OpportunityItem | null>(null);
+  const [applicantsList, setApplicantsList] = useState<OpportunityApplicant[]>([]);
+  const [isLoadingApplicants, setIsLoadingApplicants] = useState(false);
+  const [applicantActionError, setApplicantActionError] = useState<string | null>(null);
+
+  const handleOpenApplicants = async (op: OpportunityItem) => {
+    setSelectedOpportunityForApplicants(op);
+    setIsReviewApplicantsOpen(true);
+    setIsLoadingApplicants(true);
+    setApplicantActionError(null);
+    try {
+      const res = await getOpportunityApplicantsAction(op.id);
+      if (res.success && res.applicants) {
+        setApplicantsList(res.applicants);
+      } else {
+        setApplicantActionError(res.error || "Impossible de récupérer les candidatures.");
+      }
+    } catch (err) {
+      setApplicantActionError(err instanceof Error ? err.message : "Erreur de chargement.");
+    } finally {
+      setIsLoadingApplicants(false);
+    }
+  };
+
+  const handleUpdateApplicantStatus = async (appId: string, newStatus: string) => {
+    try {
+      const res = await updateApplicantReviewStatusAction(appId, newStatus);
+      if (res.success) {
+        setApplicantsList((prev) =>
+          prev.map((a) => (a.applicationId === appId ? { ...a, status: newStatus } : a))
+        );
+      } else {
+        alert(res.error || "Erreur lors de la mise à jour");
+      }
+    } catch {
+      alert("Erreur lors de la mise à jour");
+    }
+  };
+
+  const handleCreateOpportunitySubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setIsCreatingOpportunity(true);
+    setCreateOpportunityError(null);
+    try {
+      const formData = new FormData(e.currentTarget);
+      const res = await createOpportunityAction(formData);
+      if (res.success) {
+        setIsCreateOpportunityOpen(false);
+        window.location.reload();
+      } else {
+        setCreateOpportunityError(res.error || "Échec de création de l'opportunité.");
+      }
+    } catch (err) {
+      setCreateOpportunityError(err instanceof Error ? err.message : "Erreur inattendue.");
+    } finally {
+      setIsCreatingOpportunity(false);
+    }
+  };
 
   // Filter opportunities based on search, status & reliability filter, role type, and feed mode
   const filteredOpportunities = useMemo(() => {
@@ -391,6 +460,16 @@ export function OpportunityDirectoryClient({
             <span>⚡</span>
             <span>Sources & Synchronisation</span>
           </button>
+          {isManager && (
+            <button
+              type="button"
+              onClick={() => setIsCreateOpportunityOpen(true)}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl transition-all shadow-xs flex items-center space-x-1.5 cursor-pointer"
+            >
+              <span>➕</span>
+              <span>Publier une Offre</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -898,13 +977,22 @@ export function OpportunityDirectoryClient({
                 {/* Card Footer: CTA and Manager Actions */}
                 <div className="px-6 py-4 bg-slate-50/60 dark:bg-zinc-950/60 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between gap-2">
                   {isManager && (
-                    <button
-                      type="button"
-                      onClick={() => handleToggleActive(op.id, op.is_active !== false)}
-                      className="text-[11px] text-rose-600 hover:text-rose-700 dark:text-rose-400 font-medium cursor-pointer"
-                    >
-                      Désactiver
-                    </button>
+                    <div className="flex items-center space-x-3">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleActive(op.id, op.is_active !== false)}
+                        className="text-[11px] text-rose-600 hover:text-rose-700 dark:text-rose-400 font-medium cursor-pointer"
+                      >
+                        {op.is_active !== false ? "Désactiver" : "Activer"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenApplicants(op)}
+                        className="text-[11px] font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400 underline cursor-pointer"
+                      >
+                        Candidatures
+                      </button>
+                    </div>
                   )}
                   <div className="flex flex-wrap items-center gap-2">
                     {op.source_url && (
@@ -1583,6 +1671,259 @@ export function OpportunityDirectoryClient({
                 type="button"
                 onClick={() => setSelectedBreakdown(null)}
                 className="px-4 py-2 text-xs font-semibold rounded-xl bg-slate-200 dark:bg-zinc-800 hover:bg-slate-300 dark:hover:bg-zinc-700 text-slate-800 dark:text-zinc-200 transition-colors cursor-pointer"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 1: Publier une Opportunité (Manager) */}
+      {isCreateOpportunityOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 shadow-xl border border-slate-200 dark:border-zinc-800 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Publier une Nouvelle Opportunité
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-zinc-400">
+                  Ajoutez une offre de stage PFE ou d&apos;emploi junior au répertoire
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCreateOpportunityOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 text-lg leading-none cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {createOpportunityError && (
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 rounded-xl text-xs text-rose-700 dark:text-rose-400">
+                {createOpportunityError}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateOpportunitySubmit} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-zinc-300 mb-1">
+                  Intitulé du poste *
+                </label>
+                <input
+                  type="text"
+                  name="title"
+                  required
+                  placeholder="ex: Stage PFE Développeur Full-Stack React & Node.js"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-zinc-300 mb-1">
+                    Entreprise *
+                  </label>
+                  <input
+                    type="text"
+                    name="company_name"
+                    required
+                    placeholder="ex: InstaDeep, Expensya"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-zinc-300 mb-1">
+                    Type de contrat *
+                  </label>
+                  <select
+                    name="type"
+                    required
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-slate-900 dark:text-white"
+                  >
+                    <option value="PFE">Stage PFE</option>
+                    <option value="STAGE">Stage d&apos;été</option>
+                    <option value="JUNIOR">Emploi Junior / CDI</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-zinc-300 mb-1">
+                    Localisation *
+                  </label>
+                  <input
+                    type="text"
+                    name="location"
+                    required
+                    placeholder="ex: Tunis (Lac 2), Remote"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-zinc-300 mb-1">
+                    Email Recruteur / Contact *
+                  </label>
+                  <input
+                    type="email"
+                    name="contact_email"
+                    required
+                    placeholder="ex: rh@entreprise.tn"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-zinc-300 mb-1">
+                  Site Web ou Lien Officiel
+                </label>
+                <input
+                  type="url"
+                  name="source_url"
+                  placeholder="https://..."
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-zinc-300 mb-1">
+                  Description du poste & Profil recherché *
+                </label>
+                <textarea
+                  name="description"
+                  required
+                  rows={4}
+                  placeholder="Détaillez les missions, la stack technique et les compétences attendues..."
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateOpportunityOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 cursor-pointer"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingOpportunity}
+                  className="px-5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  {isCreatingOpportunity ? "Publication..." : "Publier l'Offre"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 2: Gestion des Candidatures Reçues (Manager) */}
+      {isReviewApplicantsOpen && selectedOpportunityForApplicants && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6 shadow-xl border border-slate-200 dark:border-zinc-800 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Candidatures Reçues
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-zinc-400">
+                  {selectedOpportunityForApplicants.title} • {selectedOpportunityForApplicants.companies?.name}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsReviewApplicantsOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 text-lg leading-none cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {applicantActionError && (
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 rounded-xl text-xs text-rose-700 dark:text-rose-400">
+                {applicantActionError}
+              </div>
+            )}
+
+            {isLoadingApplicants ? (
+              <div className="py-12 text-center text-xs text-slate-500 dark:text-zinc-400">
+                Chargement des candidatures...
+              </div>
+            ) : applicantsList.length === 0 ? (
+              <div className="py-12 text-center space-y-2">
+                <span className="text-3xl">📭</span>
+                <p className="text-sm font-semibold text-slate-800 dark:text-zinc-200">
+                  Aucune candidature reçue
+                </p>
+                <p className="text-xs text-slate-500 dark:text-zinc-400">
+                  Les candidatures soumises par les candidats s&apos;afficheront ici avec accès direct à leur CV.
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100 dark:divide-zinc-800">
+                {applicantsList.map((applicant) => (
+                  <div key={applicant.applicationId} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs font-bold text-slate-900 dark:text-white">
+                          {applicant.candidateName}
+                        </span>
+                        <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300">
+                          {applicant.status}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-zinc-400">
+                        🎓 {applicant.school || "Université"} {applicant.degree ? "• " + applicant.degree : ""} {applicant.specialty ? "(" + applicant.specialty + ")" : ""}
+                      </p>
+                      <p className="text-[10px] text-slate-400 dark:text-zinc-500">
+                        Postulé le {new Date(applicant.appliedAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center space-x-2 shrink-0">
+                      {applicant.resumeDownloadUrl ? (
+                        <a
+                          href={applicant.resumeDownloadUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 transition-colors cursor-pointer"
+                        >
+                          📄 Voir le CV
+                        </a>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 dark:text-zinc-500 italic">
+                          CV non disponible
+                        </span>
+                      )}
+
+                      <select
+                        value={applicant.status}
+                        onChange={(e) => handleUpdateApplicantStatus(applicant.applicationId, e.target.value)}
+                        className="text-xs px-2.5 py-1 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-800 dark:text-zinc-200 cursor-pointer"
+                      >
+                        <option value="draft">Brouillon</option>
+                        <option value="approved">En Examen / Validée</option>
+                        <option value="sent">Envoyée / Contactée</option>
+                        <option value="replied">Réponse Reçue</option>
+                        <option value="closed">Clôturée</option>
+                      </select>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="pt-3 border-t border-slate-100 dark:border-zinc-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsReviewApplicantsOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-200 dark:bg-zinc-800 hover:bg-slate-300 dark:hover:bg-zinc-700 text-slate-800 dark:text-zinc-200 cursor-pointer"
               >
                 Fermer
               </button>

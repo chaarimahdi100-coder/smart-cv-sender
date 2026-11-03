@@ -5,6 +5,8 @@ import { parseAndExtractCV, validatePdfMagicBytes } from "@/lib/cv-parser";
 import { redirect } from "next/navigation";
 import { sanitizeProfileData } from "@/lib/profile-utils";
 import { checkRateLimit } from "@/lib/rate-limiter";
+import { isDemoUser } from "@/lib/demo-mode";
+import { isAuthorizedOpportunityManager } from "@/lib/auth/admin-auth";
 
 export async function uploadCV(formData: FormData) {
   const supabase = await createClient();
@@ -12,6 +14,15 @@ export async function uploadCV(formData: FormData) {
 
   if (!user) {
     redirect("/login?error=" + encodeURIComponent("Please log in to upload your CV"));
+  }
+
+  // Shared demo account protection: CV upload disabled to preserve test data
+  if (isDemoUser(user.email)) {
+    redirect(
+      `/cv?error=${encodeURIComponent(
+        "L'importation de CV est désactivée sur le compte de démonstration partagé pour préserver le CV de test. Pour tester avec votre propre CV, créez un compte personnel."
+      )}`
+    );
   }
 
   // Rate limit: max 5 CV uploads per 10 minutes per candidate
@@ -126,4 +137,48 @@ export async function saveExtractedData(formData: FormData) {
   }
 
   redirect("/profile?success=" + encodeURIComponent("CV details verified and saved to your profile."));
+}
+
+/**
+ * Generates an authorized, short-lived signed URL (60s) to securely view or download a CV.
+ * Accessible only to the CV owner or authorized recruitment managers.
+ */
+export async function getResumeDownloadUrl(resumeId: string): Promise<{ url?: string; error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: "Non authentifié. Veuillez vous connecter." };
+  }
+
+  // 1. Fetch resume record
+  const { data: resume, error: resumeError } = await supabase
+    .from("resumes")
+    .select("id, user_id, storage_path")
+    .eq("id", resumeId)
+    .single();
+
+  if (resumeError || !resume) {
+    return { error: "CV introuvable ou accès non autorisé." };
+  }
+
+  // 2. Strict authorization check: must be owner OR authorized manager
+  const isOwner = resume.user_id === user.id;
+  const isManager = isAuthorizedOpportunityManager(user).authorized;
+
+  if (!isOwner && !isManager) {
+    return { error: "Accès refusé : vous n'êtes pas autorisé à consulter ce document." };
+  }
+
+  // 3. Generate 60-second signed download URL
+  const { data: signedData, error: signError } = await supabase
+    .storage
+    .from("resumes")
+    .createSignedUrl(resume.storage_path, 60);
+
+  if (signError || !signedData?.signedUrl) {
+    return { error: "Impossible d'accéder au fichier dans le stockage sécurisé." };
+  }
+
+  return { url: signedData.signedUrl };
 }

@@ -4,11 +4,12 @@ import { LoginForm } from "@/components/auth/LoginForm";
 export const instant = false;
 
 export default async function LoginPage(props: {
-  searchParams: Promise<{ error?: string; success?: string }>;
+  searchParams: Promise<{ error?: string; success?: string; expired?: string }>;
 }) {
   const searchParams = await props.searchParams;
   const error = searchParams?.error;
   const success = searchParams?.success;
+  const isExpired = Boolean(searchParams?.expired);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-zinc-950 px-4 py-12">
@@ -49,7 +50,7 @@ export default async function LoginPage(props: {
           </div>
         )}
 
-        <LoginForm />
+        <LoginForm initialExpired={isExpired} />
 
         <p className="text-center text-xs text-slate-600 dark:text-zinc-400">
           Don&apos;t have an account yet?{" "}

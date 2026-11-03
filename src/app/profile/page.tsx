@@ -1,6 +1,7 @@
 import { connection } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { updateProfile } from "./actions";
+import { isDemoUser } from "@/lib/demo-mode";
 import { redirect } from "next/navigation";
 import { UniversityCombobox } from "@/components/ui/UniversityCombobox";
 import { DegreeCombobox } from "@/components/ui/DegreeCombobox";
@@ -28,6 +29,7 @@ export default async function ProfilePage(props: {
     redirect("/login");
   }
 
+  const isDemo = isDemoUser(user.email);
   const { data: profile } = await supabase
     .from("profiles")
     .select("*")
@@ -83,6 +85,32 @@ export default async function ProfilePage(props: {
               />
             </svg>
             <p className="text-sm font-medium text-rose-900 dark:text-rose-300">{error}</p>
+          </div>
+        )}
+
+        {isDemo && (
+          <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/80 rounded-xl flex items-start shadow-xs space-x-3">
+            <svg
+              className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <div>
+              <p className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                Mode Démo — Profil partagé en lecture seule
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-400/90 mt-0.5 leading-relaxed">
+                Ce profil de démonstration est partagé entre les visiteurs. Les modifications sont désactivées pour préserver les données de test.
+              </p>
+            </div>
           </div>
         )}
 
@@ -231,9 +259,10 @@ export default async function ProfilePage(props: {
           <div className="pt-2 flex items-center justify-end space-x-3">
             <button
               type="submit"
+              disabled={isDemo}
               className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-medium text-sm rounded-xl transition-all shadow-md shadow-blue-500/20 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >
-              Save Profile Changes
+              {isDemo ? "Modification désactivée (Mode Démo)" : "Save Profile Changes"}
             </button>
           </div>
         </form>

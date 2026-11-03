@@ -1,6 +1,6 @@
 import { connection } from "next/server";
 import { createClient } from "@/utils/supabase/server";
-import { createApplicationDraft } from "./actions";
+import { createApplicationDraft, submitDirectApplication } from "./actions";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { AppNavbar } from "@/components/layout/AppNavbar";
@@ -59,6 +59,14 @@ export default async function ApplyPage(props: { params: Promise<{ id: string }>
     .select("id, created_at, storage_path, extracted_data")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
+
+  // Check if candidate already has an application for this opportunity
+  const { data: existingApp } = await supabase
+    .from("applications")
+    .select("id, status, created_at")
+    .eq("user_id", user.id)
+    .eq("opportunity_id", params.id)
+    .maybeSingle();
 
   type ExtractedPayload = {
     data?: {
@@ -301,6 +309,29 @@ export default async function ApplyPage(props: { params: Promise<{ id: string }>
           )}
         </div>
 
+        {/* Existing Application Banner */}
+        {existingApp && (
+          <div className="mb-6 p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center space-x-3">
+              <span className="text-xl">📋</span>
+              <div>
+                <p className="text-xs font-bold text-blue-900 dark:text-blue-200">
+                  Candidature déjà enregistrée pour cette opportunité
+                </p>
+                <p className="text-[11px] text-blue-700 dark:text-blue-400 mt-0.5">
+                  Statut : <span className="font-semibold uppercase">{existingApp.status.replace("_", " ")}</span> • Créée le {formatDisplayDate(existingApp.created_at)}
+                </p>
+              </div>
+            </div>
+            <Link
+              href={`/applications/${existingApp.id}/draft`}
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-2xs self-start sm:self-auto"
+            >
+              Consulter votre dossier →
+            </Link>
+          </div>
+        )}
+
         {/* Application Form */}
         <div className="bg-white dark:bg-zinc-900 shadow-xs rounded-2xl border border-slate-200 dark:border-zinc-800 p-6 sm:p-8">
           <form action={createApplicationDraft} className="space-y-6">
@@ -388,27 +419,37 @@ export default async function ApplyPage(props: { params: Promise<{ id: string }>
               </div>
             )}
 
-            <div className="pt-4 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-between">
+            <div className="pt-4 border-t border-slate-100 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <span className="text-xs text-slate-500 dark:text-zinc-400">
-                You will review the draft before sending
+                Deux modes : candidature directe ou personnalisation par IA
               </span>
               {isVacancyClosedOrExpired ? (
                 <button
                   type="button"
                   disabled
                   className="px-6 py-2.5 bg-rose-100 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 font-medium text-sm rounded-xl cursor-not-allowed border border-rose-200 dark:border-rose-900/60 shadow-xs"
-                  title="Cette opportunité est clôturée ou expirée. La génération d'un brouillon est bloquée."
+                  title="Cette opportunité est clôturée ou expirée. La candidature est bloquée."
                 >
                   Candidature Bloquée (Offre Clôturée / Expirée)
                 </button>
               ) : (
-                <button
-                  type="submit"
-                  disabled={!resumes || resumes.length === 0}
-                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-medium text-sm rounded-xl transition-all shadow-md shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  Generate Email Draft →
-                </button>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                  <button
+                    type="submit"
+                    formAction={submitDirectApplication}
+                    disabled={!resumes || resumes.length === 0}
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-semibold text-xs rounded-xl transition-all shadow-md shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    ✓ Postuler Directement avec mon CV
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!resumes || resumes.length === 0}
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs rounded-xl transition-all shadow-md shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    Générer un Pitch IA Personnalisé →
+                  </button>
+                </div>
               )}
             </div>
           </form>

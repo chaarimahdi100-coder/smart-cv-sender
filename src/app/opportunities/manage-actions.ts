@@ -9,6 +9,7 @@ import {
   toggleOpportunityActive,
   importOpportunitiesBatch,
   seedTunisianOpportunitiesCatalog,
+  getServiceRoleClient,
   ImportResult,
 } from "@/lib/opportunities-manager";
 
@@ -227,4 +228,154 @@ export async function importOpportunitiesJsonAction(jsonString: string): Promise
   const result = await importOpportunitiesBatch(supabase, parsed);
   revalidatePath("/opportunities");
   return result;
+}
+
+
+export interface OpportunityApplicant {
+  id: string;
+  applicationId: string;
+  userId: string;
+  candidateName: string;
+  email?: string;
+  school?: string;
+  degree?: string;
+  specialty?: string;
+  status: string;
+  appliedAt: string;
+  resumeDownloadUrl?: string;
+  resumeFilename?: string;
+}
+
+/**
+ * Server Action: Fetches all candidates who applied to a specific opportunity.
+ * Protected: Requires authorized manager (ADMIN_EMAILS).
+ * Generates signed URLs for candidates' CVs so managers can review them.
+ */
+export async function getOpportunityApplicantsAction(
+  opportunityId: string
+): Promise<{ success: boolean; applicants?: OpportunityApplicant[]; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const authCheck = isAuthorizedOpportunityManager(user);
+  if (!authCheck.authorized) {
+    return { success: false, error: authCheck.reason || "Action non autorisée." };
+  }
+
+  const adminClient = getServiceRoleClient() || supabase;
+
+  const { data: applications, error: appError } = await adminClient
+    .from("applications")
+    .select(`
+      id,
+      user_id,
+      resume_id,
+      status,
+      created_at,
+      profiles:user_id (id, first_name, last_name, school, degree, specialty),
+      resumes:resume_id (id, storage_path)
+    `)
+    .eq("opportunity_id", opportunityId)
+    .order("created_at", { ascending: false });
+
+  if (appError) {
+    return { success: false, error: "Erreur lors de la récupération des candidatures : " + appError.message };
+  }
+
+  type RawApp = {
+    id: string;
+    user_id: string;
+    resume_id: string | null;
+    status: string;
+    created_at: string;
+    profiles: {
+      id?: string;
+      first_name?: string | null;
+      last_name?: string | null;
+      school?: string | null;
+      degree?: string | null;
+      specialty?: string | null;
+    } | null;
+    resumes: {
+      id?: string;
+      storage_path?: string | null;
+    } | null;
+  };
+
+  const rawList = (applications || []) as unknown as RawApp[];
+  const applicants: OpportunityApplicant[] = [];
+
+  for (const app of rawList) {
+    let resumeUrl: string | undefined = undefined;
+    let resumeFilename: string | undefined = undefined;
+
+    if (app.resumes?.storage_path) {
+      try {
+        const { data: signed } = await adminClient.storage
+          .from("resumes")
+          .createSignedUrl(app.resumes.storage_path, 300);
+        if (signed?.signedUrl) {
+          resumeUrl = signed.signedUrl;
+          resumeFilename = app.resumes.storage_path.split("/").pop() || "CV.pdf";
+        }
+      } catch {
+        // Continue if signed URL generation fails for an individual CV
+      }
+    }
+
+    const prof = app.profiles;
+    const nameParts = [prof?.first_name, prof?.last_name].filter(Boolean);
+    const candidateName = nameParts.length > 0 ? nameParts.join(" ") : "Candidat Anonyme";
+
+    applicants.push({
+      id: app.id,
+      applicationId: app.id,
+      userId: app.user_id,
+      candidateName,
+      school: prof?.school || undefined,
+      degree: prof?.degree || undefined,
+      specialty: prof?.specialty || undefined,
+      status: app.status,
+      appliedAt: app.created_at,
+      resumeDownloadUrl: resumeUrl,
+      resumeFilename,
+    });
+  }
+
+  return { success: true, applicants };
+}
+
+/**
+ * Server Action: Updates candidate review status (e.g. 'approved', 'replied', 'closed').
+ * Protected: Requires authorized manager.
+ */
+export async function updateApplicantReviewStatusAction(
+  applicationId: string,
+  newStatus: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const authCheck = isAuthorizedOpportunityManager(user);
+  if (!authCheck.authorized) {
+    return { success: false, error: authCheck.reason || "Action non autorisée." };
+  }
+
+  const adminClient = getServiceRoleClient() || supabase;
+
+  const { error } = await adminClient
+    .from("applications")
+    .update({ status: newStatus, updated_at: new Date().toISOString() })
+    .eq("id", applicationId);
+
+  if (error) {
+    return { success: false, error: "Échec de mise à jour du statut : " + error.message };
+  }
+
+  revalidatePath("/opportunities");
+  return { success: true };
 }

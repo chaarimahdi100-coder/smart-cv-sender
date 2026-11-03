@@ -2,6 +2,7 @@
 
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { buildDraftPayload, isTrustedRecruiterEmail } from "@/lib/draft-utils";
 import {
   generateProfessionalEmailDraft,
@@ -299,4 +300,86 @@ export async function createApplicationDraft(formData: FormData) {
   }
 
   redirect(`/applications/${targetAppId}/draft`);
+}
+
+
+/**
+ * Direct platform application submission without customized email generation.
+ * Links the applicant's verified CV to the opportunity with status 'approved' (ready/submitted).
+ */
+export async function submitDirectApplication(formData: FormData) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const opportunityId = String(formData.get("opportunity_id") || "");
+  const resumeId = String(formData.get("resume_id") || "");
+  if (!opportunityId || !resumeId) throw new Error("Missing required fields");
+
+  const { data: opportunity, error: opportunityError } = await supabase
+    .from("opportunities")
+    .select("id, company_id, title, is_active, verification_status, valid_through")
+    .eq("id", opportunityId)
+    .single();
+
+  if (opportunityError || !opportunity) throw new Error("Opportunity not found");
+
+  const isPastDeadline = opportunity.valid_through
+    ? new Date(opportunity.valid_through).getTime() < Date.now()
+    : false;
+  if (
+    opportunity.verification_status === "closed" ||
+    opportunity.verification_status === "expired" ||
+    opportunity.is_active === false ||
+    isPastDeadline
+  ) {
+    throw new Error("Cette opportunité est clôturée ou expirée.");
+  }
+
+  const { data: resume } = await supabase
+    .from("resumes")
+    .select("id")
+    .eq("id", resumeId)
+    .eq("user_id", user.id)
+    .single();
+  if (!resume) throw new Error("Resume not found or access denied");
+
+  const { data: existingApp } = await supabase
+    .from("applications")
+    .select("id, status")
+    .eq("user_id", user.id)
+    .eq("opportunity_id", opportunityId)
+    .maybeSingle();
+
+  if (existingApp) {
+    await supabase
+      .from("applications")
+      .update({
+        resume_id: resumeId,
+        status: "approved",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existingApp.id)
+      .eq("user_id", user.id);
+  } else {
+    const { error: appError } = await supabase
+      .from("applications")
+      .insert({
+        user_id: user.id,
+        company_id: opportunity.company_id,
+        opportunity_id: opportunityId,
+        resume_id: resumeId,
+        status: "approved",
+      });
+
+    if (appError) {
+      throw new Error("Failed to submit application: " + appError.message);
+    }
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/opportunities");
+  redirect("/dashboard?success=" + encodeURIComponent("Votre candidature a été enregistrée avec succès !"));
 }

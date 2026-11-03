@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SignupForm } from "@/components/auth/SignupForm";
+import { loginAsDemo } from "@/app/auth/actions";
 
 export const instant = false;
 
@@ -32,6 +33,24 @@ export default async function SignupPage(props: { searchParams: Promise<{ error?
           <p className="text-xs text-slate-500 dark:text-zinc-400">
             Automate your job search and generate tailored applications.
           </p>
+        </div>
+
+        {/* Instant Demo Option for Visitors */}
+        <div className="p-4 bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-2xl space-y-2 text-center">
+          <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+            Vous souhaitez simplement découvrir l&apos;application ?
+          </p>
+          <p className="text-2xs text-amber-700 dark:text-amber-400/90 leading-relaxed">
+            Accédez directement à l&apos;espace de démonstration en 1 clic sans inscription ni confirmation d&apos;email.
+          </p>
+          <form action={loginAsDemo} className="pt-1">
+            <button
+              type="submit"
+              className="w-full py-2 px-3 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-semibold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center space-x-1.5 cursor-pointer"
+            >
+              <span>Accéder au Mode Démo (1-clic) &rarr;</span>
+            </button>
+          </form>
         </div>
 
         {error && (
